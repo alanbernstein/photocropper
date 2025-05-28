@@ -4,13 +4,13 @@ Example: you need a 2"x2" passport photo. You can buy one at walgreens for $16. 
 
 Multiple scenarios are supported. The passport scenario is defined like this:
 
-```json
-      passport: {
-        label: "Passport",
-        outer: [4.0, 4.0], // printed size (inches)
-        inner: [2.0, 2.0], // cut size (inches)
-        extra: [1.25, 1.25] // face size (inches)
-      },
+```
+passport: {
+    label: "Passport",
+    outer: [4.0, 4.0], // printed size (inches)
+    inner: [2.0, 2.0], // cut size (inches)
+    extra: [1.25, 1.25] // face size (inches)
+}
 ```
 
 ![example 1](example1.png)
