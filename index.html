@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Viewport Image Cropper</title>
+  <style>
+    html, body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+    }
+    canvas {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+    }
+    #controls {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background: rgba(255, 255, 255, 0.8);
+      padding: 8px;
+      border-radius: 6px;
+    }
+  </style>
+</head>
+<body>
+
+<canvas id="canvas"></canvas>
+<div id="controls">
+  <input type="file" id="imageLoader" accept="image/*">
+  <button id="cropBtn">Crop and Download</button>
+</div>
+
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const imageLoader = document.getElementById('imageLoader');
+const cropBtn = document.getElementById('cropBtn');
+
+let img = new Image();
+let imgLoaded = false;
+let scale = 1;
+let offsetX = 0;
+let offsetY = 0;
+
+let crop = { x: 0, y: 0, size: 100 }; // in image space
+let dragging = false;
+let resizing = false;
+let dragOffset = { x: 0, y: 0 };
+const resizeMargin = 10;
+
+function resizeCanvas() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+  if (imgLoaded) draw();
+}
+
+window.addEventListener('resize', resizeCanvas);
+
+imageLoader.addEventListener('change', e => {
+  const reader = new FileReader();
+  reader.onload = evt => {
+    img.onload = () => {
+      imgLoaded = true;
+
+      // Calculate scale to fit image in canvas
+      const scaleX = canvas.width / img.width;
+      const scaleY = canvas.height / img.height;
+      scale = Math.min(scaleX, scaleY);
+
+      // Center image
+      offsetX = (canvas.width - img.width * scale) / 2;
+      offsetY = (canvas.height - img.height * scale) / 2;
+
+      // Set initial crop box (25% of image width)
+      crop = {
+        x: img.width * 0.25,
+        y: img.height * 0.25,
+        size: img.width * 0.5
+      };
+
+      draw();
+    };
+    img.src = evt.target.result;
+  };
+  reader.readAsDataURL(e.target.files[0]);
+});
+
+canvas.addEventListener('mousedown', e => {
+  if (!imgLoaded) return;
+  const { x: mx, y: my } = getMouseImageCoords(e);
+  const cx = crop.x, cy = crop.y, cs = crop.size;
+  const inCorner = mx > cx + cs - 5 && my > cy + cs - 5;
+  if (inCorner) {
+    resizing = true;
+  } else if (mx > cx && mx < cx + cs && my > cy && my < cy + cs) {
+    dragging = true;
+    dragOffset.x = mx - cx;
+    dragOffset.y = my - cy;
+  }
+});
+
+canvas.addEventListener('mousemove', e => {
+  if (!imgLoaded) return;
+  const { x: mx, y: my } = getMouseImageCoords(e);
+
+  if (dragging) {
+    crop.x = mx - dragOffset.x;
+    crop.y = my - dragOffset.y;
+    draw();
+  } else if (resizing) {
+    let newSize = Math.max(20, mx - crop.x, my - crop.y);
+    crop.size = newSize;
+    draw();
+  } else {
+    const screen = getMouseCanvasCoords(e);
+    const screenCrop = toScreen(crop.x + crop.size, crop.y + crop.size);
+    const margin = resizeMargin;
+    canvas.style.cursor = (screen.x > screenCrop.x - margin && screen.y > screenCrop.y - margin)
+      ? 'nwse-resize' : 'move';
+  }
+});
+
+canvas.addEventListener('mouseup', () => {
+  dragging = false;
+  resizing = false;
+});
+
+function draw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (!imgLoaded) return;
+
+  ctx.drawImage(img, offsetX, offsetY, img.width * scale, img.height * scale);
+
+  const sx = crop.x, sy = crop.y, s = crop.size;
+  const scr = toScreen(sx, sy);
+  const scrSize = s * scale;
+
+  // Red main square
+  ctx.strokeStyle = 'red';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(scr.x, scr.y, scrSize, scrSize);
+
+  // Blue 50% box
+  const b = s * 0.5;
+  const scrB = toScreen(sx + s * 0.25, sy + s * 0.25);
+  ctx.strokeStyle = 'blue';
+  ctx.strokeRect(scrB.x, scrB.y, b * scale, b * scale);
+
+  // Green 31% box
+  const g = s * 0.31;
+  const scrG = toScreen(sx + (s - g) / 2, sy + (s - g) / 2);
+  ctx.strokeStyle = 'green';
+  ctx.strokeRect(scrG.x, scrG.y, g * scale, g * scale);
+
+  // Label
+  ctx.fillStyle = 'black';
+  ctx.font = '16px sans-serif';
+  ctx.fillText(`${Math.round(s)} x ${Math.round(s)} px`, scr.x + 5, scr.y - 10);
+}
+
+function toScreen(x, y) {
+  return {
+    x: offsetX + x * scale,
+    y: offsetY + y * scale
+  };
+}
+
+function getMouseCanvasCoords(e) {
+  const rect = canvas.getBoundingClientRect();
+  return {
+    x: e.clientX - rect.left,
+    y: e.clientY - rect.top
+  };
+}
+
+function getMouseImageCoords(e) {
+  const c = getMouseCanvasCoords(e);
+  return {
+    x: (c.x - offsetX) / scale,
+    y: (c.y - offsetY) / scale
+  };
+}
+
+cropBtn.addEventListener('click', () => {
+  if (!imgLoaded) return;
+  const tCanvas = document.createElement('canvas');
+  tCanvas.width = crop.size;
+  tCanvas.height = crop.size;
+  const tctx = tCanvas.getContext('2d');
+  tctx.drawImage(
+    img,
+    crop.x, crop.y, crop.size, crop.size,
+    0, 0, crop.size, crop.size
+  );
+  const link = document.createElement('a');
+  link.download = 'cropped_image.png';
+  link.href = tCanvas.toDataURL();
+  link.click();
+});
+
+resizeCanvas();
+</script>
+</body>
+</html>
