@@ -52,15 +52,27 @@
     const presets = {
       passport: {
         label: "Passport",
-        outer: [1.0, 1.0], // inches
-        inner: [2.0/4.0, 2.0/4.0],
-        extra: [1.25/4.0, 1.25/4.0]
+        outer: [4.0, 4.0], // inches
+        inner: [2.0, 2.0],
+        extra: [1.25, 1.25]
       },
       pawpals: {
         label: "Pawpals",
-        outer: [1.0, 1.0], // inches
-        inner: [3.0 / 4.0, 3.75 / 4.0] // relative
+        outer: [4.0, 4.0], // inches
+        inner: [3.0, 3.75]
         // no extra
+      },
+      square: {
+        label: "Square",
+        outer: [2.0, 2.0], // inches
+        inner: [1.5, 1.5],
+        extra: [1.0, 1.0]
+      },
+      rectangle: {
+        label: "Rectangle 4x6",
+        outer: [4.0, 6.0], // inches
+        inner: [3.5, 5.5],
+        extra: [3.0, 5.0]
       }
     };
 
@@ -121,9 +133,26 @@
     }
 
     function resetCrop() {
-      crop.size = Math.min(image.width, image.height) * 0.5;
-      crop.x = (image.width - crop.size) / 2;
-      crop.y = (image.height - crop.size) / 2;
+      if (!currentPreset) {
+        crop.size = Math.min(image.width, image.height) * 0.5;
+      } else {
+        const [ow, oh] = currentPreset.outer;
+        // Calculate size that fits within the image with some margin
+        const maxWidth = image.width * 0.8; // 80% of image width
+        const maxHeight = image.height * 0.8; // 80% of image height
+        
+        // Find the size that fits both width and height constraints
+        const sizeForWidth = maxWidth / ow;
+        const sizeForHeight = maxHeight / oh;
+        crop.size = Math.min(sizeForWidth, sizeForHeight);
+      }
+      
+      // Center the crop area
+      const [ow, oh] = currentPreset ? currentPreset.outer : [1, 1];
+      const cropWidth = crop.size * ow;
+      const cropHeight = crop.size * oh;
+      crop.x = (image.width - cropWidth) / 2;
+      crop.y = (image.height - cropHeight) / 2;
     }
 
     function toScreen(x, y) {
@@ -230,7 +259,7 @@
       const outerH = s * oh;
       const scr = toScreen(sx, sy);
 
-      // DPI calculation
+      // DPI calculation based on actual pixel dimensions
       const dpiX = outerW / ow;
       const dpiY = outerH / oh;
       const dpi = Math.round((dpiX + dpiY) / 2);
@@ -242,28 +271,35 @@
 
       ctx.fillStyle = 'black';
       ctx.font = '14px sans-serif';
-      ctx.fillText(`${ow} × ${oh} in @ ${dpi} DPI`, scr.x + 4, scr.y - 8);
+
+      ctx.shadowColor = "black";
+      ctx.shadowBlur = 2;
+      ctx.lineWidth = 2;
+      ctx.fillText(`${ow}" × ${oh}" @ ${dpi} DPI`, scr.x + 4, scr.y - 8);
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = 'white';
+      ctx.fillText(`${ow}" × ${oh}" @ ${dpi} DPI`, scr.x + 4, scr.y - 8);
 
       // Blue inner box
-      const [ix, iy] = currentPreset.inner;
-      const iw = outerW * ix;
-      const ih = outerH * iy;
+      const [iw_inches, ih_inches] = currentPreset.inner;
+      const iw = outerW * (iw_inches / ow);
+      const ih = outerH * (ih_inches / oh);
       const iScr = toScreen(sx + (outerW - iw) / 2, sy + (outerH - ih) / 2);
       ctx.strokeStyle = 'blue';
       ctx.strokeRect(iScr.x, iScr.y, iw * scale, ih * scale);
 
       // Optional green extra box
       if (currentPreset.extra) {
-        const [ex, ey] = currentPreset.extra;
-        const ew = outerW * ex;
-        const eh = outerH * ey;
+        const [ew_inches, eh_inches] = currentPreset.extra;
+        const ew = outerW * (ew_inches / ow);
+        const eh = outerH * (eh_inches / oh);
         const eScr = toScreen(sx + (outerW - ew) / 2, sy + (outerH - eh) / 2);
         ctx.strokeStyle = 'green';
         ctx.strokeRect(eScr.x, eScr.y, ew * scale, eh * scale);
       }
 
       // Resize handle (triangle)
-      ctx.fillStyle = 'black';
+      ctx.fillStyle = 'red';
       ctx.beginPath();
       ctx.moveTo(scr.x + outerW * scale, scr.y + outerH * scale);
       ctx.lineTo(scr.x + outerW * scale - resizeHandleSize, scr.y + outerH * scale);
