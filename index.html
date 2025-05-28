@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Viewport Image Cropper</title>
+  <title>Image Cropper</title>
   <style>
     html, body {
       margin: 0;
@@ -22,6 +22,9 @@
       padding: 8px;
       border-radius: 6px;
     }
+    select, button, input {
+      margin: 5px;
+    }
   </style>
 </head>
 <body>
@@ -29,6 +32,10 @@
 <canvas id="canvas"></canvas>
 <div id="controls">
   <input type="file" id="imageLoader" accept="image/*">
+  <select id="modeSelector">
+    <option value="passport">Passport</option>
+    <option value="pawpals">Pawpals</option>
+  </select>
   <button id="cropBtn">Crop and Download</button>
 </div>
 
@@ -37,6 +44,7 @@ const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
 const imageLoader = document.getElementById('imageLoader');
 const cropBtn = document.getElementById('cropBtn');
+const modeSelector = document.getElementById('modeSelector');
 
 let img = new Image();
 let imgLoaded = false;
@@ -44,18 +52,33 @@ let scale = 1;
 let offsetX = 0;
 let offsetY = 0;
 
-let crop = { x: 0, y: 0, size: 100 }; // in image space
+let crop = { x: 0, y: 0, size: 100 };
 let dragging = false;
 let resizing = false;
 let dragOffset = { x: 0, y: 0 };
 const resizeMargin = 10;
+
+// Preset configurations
+const presets = {
+  passport: {
+    label: "passport",
+    inner: [0.5, 0.5],
+    extra: [0.31, 0.31]
+  },
+  pawpals: {
+    label: "pawpals",
+    inner: [3.0/4.0, 3.75/4.0],
+    extra: [.5, .5]
+  }
+};
+
+let currentPreset = presets.square;
 
 function resizeCanvas() {
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
   if (imgLoaded) draw();
 }
-
 window.addEventListener('resize', resizeCanvas);
 
 imageLoader.addEventListener('change', e => {
@@ -68,12 +91,9 @@ imageLoader.addEventListener('change', e => {
       const scaleX = canvas.width / img.width;
       const scaleY = canvas.height / img.height;
       scale = Math.min(scaleX, scaleY);
-
-      // Center image
       offsetX = (canvas.width - img.width * scale) / 2;
       offsetY = (canvas.height - img.height * scale) / 2;
 
-      // Set initial crop box (25% of image width)
       crop = {
         x: img.width * 0.25,
         y: img.height * 0.25,
@@ -91,7 +111,7 @@ canvas.addEventListener('mousedown', e => {
   if (!imgLoaded) return;
   const { x: mx, y: my } = getMouseImageCoords(e);
   const cx = crop.x, cy = crop.y, cs = crop.size;
-  const inCorner = mx > cx + cs - 5 && my > cy + cs - 5;
+  const inCorner = mx > cx + cs - 10 && my > cy + cs - 10;
   if (inCorner) {
     resizing = true;
   } else if (mx > cx && mx < cx + cs && my > cy && my < cy + cs) {
@@ -116,8 +136,7 @@ canvas.addEventListener('mousemove', e => {
   } else {
     const screen = getMouseCanvasCoords(e);
     const screenCrop = toScreen(crop.x + crop.size, crop.y + crop.size);
-    const margin = resizeMargin;
-    canvas.style.cursor = (screen.x > screenCrop.x - margin && screen.y > screenCrop.y - margin)
+    canvas.style.cursor = (screen.x > screenCrop.x - resizeMargin && screen.y > screenCrop.y - resizeMargin)
       ? 'nwse-resize' : 'move';
   }
 });
@@ -125,6 +144,12 @@ canvas.addEventListener('mousemove', e => {
 canvas.addEventListener('mouseup', () => {
   dragging = false;
   resizing = false;
+});
+
+modeSelector.addEventListener('change', e => {
+  const key = e.target.value;
+  currentPreset = presets[key];
+  draw();
 });
 
 function draw() {
@@ -137,22 +162,35 @@ function draw() {
   const scr = toScreen(sx, sy);
   const scrSize = s * scale;
 
-  // Red main square
+  // Main red square
   ctx.strokeStyle = 'red';
   ctx.lineWidth = 2;
   ctx.strokeRect(scr.x, scr.y, scrSize, scrSize);
 
-  // Blue 50% box
-  const b = s * 0.5;
-  const scrB = toScreen(sx + s * 0.25, sy + s * 0.25);
+  // Inner box
+  const [ix, iy] = currentPreset.inner;
+  const iw = s * ix;
+  const ih = s * iy;
+  const iScr = toScreen(sx + (s - iw) / 2, sy + (s - ih) / 2);
   ctx.strokeStyle = 'blue';
-  ctx.strokeRect(scrB.x, scrB.y, b * scale, b * scale);
+  ctx.strokeRect(iScr.x, iScr.y, iw * scale, ih * scale);
 
-  // Green 31% box
-  const g = s * 0.31;
-  const scrG = toScreen(sx + (s - g) / 2, sy + (s - g) / 2);
+  // Extra box
+  const [ex, ey] = currentPreset.extra;
+  const ew = s * ex;
+  const eh = s * ey;
+  const eScr = toScreen(sx + (s - ew) / 2, sy + (s - eh) / 2);
   ctx.strokeStyle = 'green';
-  ctx.strokeRect(scrG.x, scrG.y, g * scale, g * scale);
+  ctx.strokeRect(eScr.x, eScr.y, ew * scale, eh * scale);
+
+  // Resize handle
+  ctx.fillStyle = 'red';
+  ctx.beginPath();
+  ctx.moveTo(scr.x + scrSize, scr.y + scrSize);
+  ctx.lineTo(scr.x + scrSize - 10, scr.y + scrSize);
+  ctx.lineTo(scr.x + scrSize, scr.y + scrSize - 10);
+  ctx.closePath();
+  ctx.fill();
 
   // Label
   ctx.fillStyle = 'black';
