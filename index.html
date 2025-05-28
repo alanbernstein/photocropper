@@ -1,8 +1,8 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>Image Cropper</title>
+  <meta charset="UTF-8" />
+  <title>Crop Tool</title>
   <style>
     html, body {
       margin: 0;
@@ -11,234 +11,268 @@
     }
     canvas {
       display: block;
-      width: 100vw;
-      height: 100vh;
+      cursor: default;
     }
     #controls {
       position: absolute;
       top: 10px;
       left: 10px;
+      z-index: 10;
       background: rgba(255, 255, 255, 0.8);
-      padding: 8px;
-      border-radius: 6px;
-    }
-    select, button, input {
-      margin: 5px;
+      padding: 5px;
     }
   </style>
 </head>
 <body>
+  <div id="controls">
+    <input type="file" id="fileInput" />
+    <select id="presetSelect"></select>
+    <button id="saveBtn">Crop & Save</button>
+  </div>
+  <canvas id="canvas"></canvas>
 
-<canvas id="canvas"></canvas>
-<div id="controls">
-  <input type="file" id="imageLoader" accept="image/*">
-  <select id="modeSelector">
-    <option value="passport">Passport</option>
-    <option value="pawpals">Pawpals</option>
-  </select>
-  <button id="cropBtn">Crop and Download</button>
-</div>
+  <script>
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
+    const fileInput = document.getElementById("fileInput");
+    const presetSelect = document.getElementById("presetSelect");
+    const saveBtn = document.getElementById("saveBtn");
 
-<script>
-const canvas = document.getElementById('canvas');
-const ctx = canvas.getContext('2d');
-const imageLoader = document.getElementById('imageLoader');
-const cropBtn = document.getElementById('cropBtn');
-const modeSelector = document.getElementById('modeSelector');
+    let image = null;
+    let imageFilename = "image";
+    let scale = 1;
+    let crop = { x: 0, y: 0, size: 10 };
+    let dragging = false;
+    let resizing = false;
+    let dragOffset = { x: 0, y: 0 };
+    let currentPreset = null;
 
-let img = new Image();
-let imgLoaded = false;
-let scale = 1;
-let offsetX = 0;
-let offsetY = 0;
+    const resizeHandleSize = 20;
 
-let crop = { x: 0, y: 0, size: 100 };
-let dragging = false;
-let resizing = false;
-let dragOffset = { x: 0, y: 0 };
-const resizeMargin = 10;
-
-// Preset configurations
-const presets = {
-  passport: {
-    label: "passport",
-    inner: [0.5, 0.5],
-    extra: [0.31, 0.31]
-  },
-  pawpals: {
-    label: "pawpals",
-    inner: [3.0/4.0, 3.75/4.0],
-    extra: [.5, .5]
-  }
-};
-
-let currentPreset = presets.square;
-
-function resizeCanvas() {
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
-  if (imgLoaded) draw();
-}
-window.addEventListener('resize', resizeCanvas);
-
-imageLoader.addEventListener('change', e => {
-  const reader = new FileReader();
-  reader.onload = evt => {
-    img.onload = () => {
-      imgLoaded = true;
-
-      // Calculate scale to fit image in canvas
-      const scaleX = canvas.width / img.width;
-      const scaleY = canvas.height / img.height;
-      scale = Math.min(scaleX, scaleY);
-      offsetX = (canvas.width - img.width * scale) / 2;
-      offsetY = (canvas.height - img.height * scale) / 2;
-
-      crop = {
-        x: img.width * 0.25,
-        y: img.height * 0.25,
-        size: img.width * 0.5
-      };
-
-      draw();
+    const presets = {
+      passport: {
+        label: "Passport",
+        outer: [1.0, 1.0], // inches
+        inner: [2.0/4.0, 2.0/4.0],
+        extra: [1.25/4.0, 1.25/4.0]
+      },
+      pawpals: {
+        label: "Pawpals",
+        outer: [1.0, 1.0], // inches
+        inner: [3.0 / 4.0, 3.75 / 4.0] // relative
+        // no extra
+      }
     };
-    img.src = evt.target.result;
-  };
-  reader.readAsDataURL(e.target.files[0]);
-});
 
-canvas.addEventListener('mousedown', e => {
-  if (!imgLoaded) return;
-  const { x: mx, y: my } = getMouseImageCoords(e);
-  const cx = crop.x, cy = crop.y, cs = crop.size;
-  const inCorner = mx > cx + cs - 10 && my > cy + cs - 10;
-  if (inCorner) {
-    resizing = true;
-  } else if (mx > cx && mx < cx + cs && my > cy && my < cy + cs) {
-    dragging = true;
-    dragOffset.x = mx - cx;
-    dragOffset.y = my - cy;
-  }
-});
+    for (const key in presets) {
+      const opt = document.createElement("option");
+      opt.value = key;
+      opt.textContent = presets[key].label;
+      presetSelect.appendChild(opt);
+    }
 
-canvas.addEventListener('mousemove', e => {
-  if (!imgLoaded) return;
-  const { x: mx, y: my } = getMouseImageCoords(e);
+    presetSelect.addEventListener("change", () => {
+      const previousPreset = currentPreset;
+      currentPreset = presets[presetSelect.value];
+      if (previousPreset) {
+        // Keep the physical size constant
+        const [prevW, prevH] = previousPreset.outer;
+        const [newW, newH] = currentPreset.outer;
+        const prevArea = prevW * prevH;
+        const newArea = newW * newH;
+        const factor = Math.sqrt(prevArea / newArea);
+        crop.size *= factor;
+      }
+      draw();
+    });
 
-  if (dragging) {
-    crop.x = mx - dragOffset.x;
-    crop.y = my - dragOffset.y;
-    draw();
-  } else if (resizing) {
-    let newSize = Math.max(20, mx - crop.x, my - crop.y);
-    crop.size = newSize;
-    draw();
-  } else {
-    const screen = getMouseCanvasCoords(e);
-    const screenCrop = toScreen(crop.x + crop.size, crop.y + crop.size);
-    canvas.style.cursor = (screen.x > screenCrop.x - resizeMargin && screen.y > screenCrop.y - resizeMargin)
-      ? 'nwse-resize' : 'move';
-  }
-});
+    fileInput.addEventListener("change", e => {
+      const file = e.target.files[0];
+      if (file) {
+        imageFilename = file.name.replace(/\.[^/.]+$/, "");
+      }
+      const reader = new FileReader();
+      reader.onload = function(evt) {
+        const img = new Image();
+        img.onload = function() {
+          image = img;
+          resizeCanvas();
+          resetCrop();
+          draw();
+        };
+        img.src = evt.target.result;
+      };
+      reader.readAsDataURL(file);
+    });
 
-canvas.addEventListener('mouseup', () => {
-  dragging = false;
-  resizing = false;
-});
+    window.addEventListener("resize", () => {
+      resizeCanvas();
+      draw();
+    });
 
-modeSelector.addEventListener('change', e => {
-  const key = e.target.value;
-  currentPreset = presets[key];
-  draw();
-});
+    function resizeCanvas() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+      if (image) {
+        const scaleX = canvas.width / image.width;
+        const scaleY = canvas.height / image.height;
+        scale = Math.min(scaleX, scaleY);
+      }
+    }
 
-function draw() {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  if (!imgLoaded) return;
+    function resetCrop() {
+      crop.size = Math.min(image.width, image.height) * 0.5;
+      crop.x = (image.width - crop.size) / 2;
+      crop.y = (image.height - crop.size) / 2;
+    }
 
-  ctx.drawImage(img, offsetX, offsetY, img.width * scale, img.height * scale);
+    function toScreen(x, y) {
+      const dx = (canvas.width - image.width * scale) / 2;
+      const dy = (canvas.height - image.height * scale) / 2;
+      return { x: x * scale + dx, y: y * scale + dy };
+    }
 
-  const sx = crop.x, sy = crop.y, s = crop.size;
-  const scr = toScreen(sx, sy);
-  const scrSize = s * scale;
+    function toImage(x, y) {
+      const dx = (canvas.width - image.width * scale) / 2;
+      const dy = (canvas.height - image.height * scale) / 2;
+      return { x: (x - dx) / scale, y: (y - dy) / scale };
+    }
 
-  // Main red square
-  ctx.strokeStyle = 'red';
-  ctx.lineWidth = 2;
-  ctx.strokeRect(scr.x, scr.y, scrSize, scrSize);
+    canvas.addEventListener("mousedown", e => {
+      const { x, y } = toImage(e.offsetX, e.offsetY);
+      const [ow, oh] = currentPreset.outer;
+      const boxW = crop.size * ow;
+      const boxH = crop.size * oh;
 
-  // Inner box
-  const [ix, iy] = currentPreset.inner;
-  const iw = s * ix;
-  const ih = s * iy;
-  const iScr = toScreen(sx + (s - iw) / 2, sy + (s - ih) / 2);
-  ctx.strokeStyle = 'blue';
-  ctx.strokeRect(iScr.x, iScr.y, iw * scale, ih * scale);
+      const resizeX = crop.x + boxW;
+      const resizeY = crop.y + boxH;
+      if (
+        x >= resizeX - resizeHandleSize / scale &&
+        x <= resizeX &&
+        y >= resizeY - resizeHandleSize / scale &&
+        y <= resizeY
+      ) {
+        resizing = true;
+      } else if (
+        x >= crop.x && x <= crop.x + boxW &&
+        y >= crop.y && y <= crop.y + boxH
+      ) {
+        dragging = true;
+        dragOffset = { x: x - crop.x, y: y - crop.y };
+      }
+    });
 
-  // Extra box
-  const [ex, ey] = currentPreset.extra;
-  const ew = s * ex;
-  const eh = s * ey;
-  const eScr = toScreen(sx + (s - ew) / 2, sy + (s - eh) / 2);
-  ctx.strokeStyle = 'green';
-  ctx.strokeRect(eScr.x, eScr.y, ew * scale, eh * scale);
+    canvas.addEventListener("mousemove", e => {
+      const { x, y } = toImage(e.offsetX, e.offsetY);
+      const [ow, oh] = currentPreset.outer;
+      const boxW = crop.size * ow;
+      const boxH = crop.size * oh;
+      const resizeX = crop.x + boxW;
+      const resizeY = crop.y + boxH;
 
-  // Resize handle
-  ctx.fillStyle = 'red';
-  ctx.beginPath();
-  ctx.moveTo(scr.x + scrSize, scr.y + scrSize);
-  ctx.lineTo(scr.x + scrSize - 10, scr.y + scrSize);
-  ctx.lineTo(scr.x + scrSize, scr.y + scrSize - 10);
-  ctx.closePath();
-  ctx.fill();
+      if (
+        x >= resizeX - resizeHandleSize / scale &&
+        x <= resizeX &&
+        y >= resizeY - resizeHandleSize / scale &&
+        y <= resizeY
+      ) {
+        canvas.style.cursor = "nwse-resize";
+      } else {
+        canvas.style.cursor = dragging ? "grabbing" : "default";
+      }
 
-  // Label
-  ctx.fillStyle = 'black';
-  ctx.font = '16px sans-serif';
-  ctx.fillText(`${Math.round(s)} x ${Math.round(s)} px`, scr.x + 5, scr.y - 10);
-}
+      if (dragging) {
+        crop.x = x - dragOffset.x;
+        crop.y = y - dragOffset.y;
+        draw();
+      } else if (resizing) {
+        const dx = x - crop.x;
+        const dy = y - crop.y;
+        const newSize = Math.max(dx / ow, dy / oh);
+        crop.size = newSize;
+        draw();
+      }
+    });
 
-function toScreen(x, y) {
-  return {
-    x: offsetX + x * scale,
-    y: offsetY + y * scale
-  };
-}
+    canvas.addEventListener("mouseup", () => {
+      dragging = false;
+      resizing = false;
+    });
 
-function getMouseCanvasCoords(e) {
-  const rect = canvas.getBoundingClientRect();
-  return {
-    x: e.clientX - rect.left,
-    y: e.clientY - rect.top
-  };
-}
+    saveBtn.addEventListener("click", () => {
+      if (!image || !currentPreset) return;
+      const [ow, oh] = currentPreset.outer;
+      const w = crop.size * ow;
+      const h = crop.size * oh;
+      const temp = document.createElement("canvas");
+      temp.width = w;
+      temp.height = h;
+      const tctx = temp.getContext("2d");
+      tctx.drawImage(image, crop.x, crop.y, w, h, 0, 0, w, h);
+      const link = document.createElement("a");
+      link.download = `${imageFilename}-cropped.png`;
+      link.href = temp.toDataURL();
+      link.click();
+    });
 
-function getMouseImageCoords(e) {
-  const c = getMouseCanvasCoords(e);
-  return {
-    x: (c.x - offsetX) / scale,
-    y: (c.y - offsetY) / scale
-  };
-}
+    function draw() {
+      if (!image || !currentPreset) return;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-cropBtn.addEventListener('click', () => {
-  if (!imgLoaded) return;
-  const tCanvas = document.createElement('canvas');
-  tCanvas.width = crop.size;
-  tCanvas.height = crop.size;
-  const tctx = tCanvas.getContext('2d');
-  tctx.drawImage(
-    img,
-    crop.x, crop.y, crop.size, crop.size,
-    0, 0, crop.size, crop.size
-  );
-  const link = document.createElement('a');
-  link.download = 'cropped_image.png';
-  link.href = tCanvas.toDataURL();
-  link.click();
-});
+      const dx = (canvas.width - image.width * scale) / 2;
+      const dy = (canvas.height - image.height * scale) / 2;
+      ctx.drawImage(image, dx, dy, image.width * scale, image.height * scale);
 
-resizeCanvas();
-</script>
+      const [ow, oh] = currentPreset.outer;
+      const s = crop.size;
+      const sx = crop.x, sy = crop.y;
+      const outerW = s * ow;
+      const outerH = s * oh;
+      const scr = toScreen(sx, sy);
+
+      // DPI calculation
+      const dpiX = outerW / ow;
+      const dpiY = outerH / oh;
+      const dpi = Math.round((dpiX + dpiY) / 2);
+
+      // Red outer box
+      ctx.strokeStyle = 'red';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(scr.x, scr.y, outerW * scale, outerH * scale);
+
+      ctx.fillStyle = 'black';
+      ctx.font = '14px sans-serif';
+      ctx.fillText(`${ow} × ${oh} in @ ${dpi} DPI`, scr.x + 4, scr.y - 8);
+
+      // Blue inner box
+      const [ix, iy] = currentPreset.inner;
+      const iw = outerW * ix;
+      const ih = outerH * iy;
+      const iScr = toScreen(sx + (outerW - iw) / 2, sy + (outerH - ih) / 2);
+      ctx.strokeStyle = 'blue';
+      ctx.strokeRect(iScr.x, iScr.y, iw * scale, ih * scale);
+
+      // Optional green extra box
+      if (currentPreset.extra) {
+        const [ex, ey] = currentPreset.extra;
+        const ew = outerW * ex;
+        const eh = outerH * ey;
+        const eScr = toScreen(sx + (outerW - ew) / 2, sy + (outerH - eh) / 2);
+        ctx.strokeStyle = 'green';
+        ctx.strokeRect(eScr.x, eScr.y, ew * scale, eh * scale);
+      }
+
+      // Resize handle (triangle)
+      ctx.fillStyle = 'black';
+      ctx.beginPath();
+      ctx.moveTo(scr.x + outerW * scale, scr.y + outerH * scale);
+      ctx.lineTo(scr.x + outerW * scale - resizeHandleSize, scr.y + outerH * scale);
+      ctx.lineTo(scr.x + outerW * scale, scr.y + outerH * scale - resizeHandleSize);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    currentPreset = presets[presetSelect.value];
+  </script>
 </body>
 </html>
