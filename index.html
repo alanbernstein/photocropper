@@ -61,6 +61,13 @@
         outer: [4.0, 4.0], // printed size (inches)
         inner: [3.0, 3.75] // cut size (inches)
         // no extra
+      },
+      heart_locket: {
+        label: "Heart Locket",
+        outer: [4.0, 4.0], // printed size (inches)
+        polygons: [
+          [[ 0.6403, -0.0000], [ 0.7575, -0.2030], [ 0.7575, -0.4373], [ 0.6403, -0.6403], [ 0.4373, -0.7575], [ 0.2030, -0.7575], [ 0.0000, -0.6403], [ 0.0000, -0.6403], [-0.2030, -0.7575], [-0.4373, -0.7575], [-0.6403, -0.6403], [-0.7575, -0.4373], [-0.7575, -0.2030], [-0.6403, -0.0000], [-0.2784,  0.3619], [ 0.2784,  0.3619], [ 0.6403, -0.0000]]
+        ]
       }
     };
 
@@ -269,12 +276,14 @@
       ctx.fillText(`${ow}" × ${oh}" @ ${dpi} DPI`, scr.x + 4, scr.y - 8);
 
       // Blue inner box
-      const [iw_inches, ih_inches] = currentPreset.inner;
-      const iw = outerW * (iw_inches / ow);
-      const ih = outerH * (ih_inches / oh);
-      const iScr = toScreen(sx + (outerW - iw) / 2, sy + (outerH - ih) / 2);
-      ctx.strokeStyle = 'blue';
-      ctx.strokeRect(iScr.x, iScr.y, iw * scale, ih * scale);
+      if (currentPreset.inner) {
+        const [iw_inches, ih_inches] = currentPreset.inner;
+        const iw = outerW * (iw_inches / ow);
+        const ih = outerH * (ih_inches / oh);
+        const iScr = toScreen(sx + (outerW - iw) / 2, sy + (outerH - ih) / 2);
+        ctx.strokeStyle = 'blue';
+        ctx.strokeRect(iScr.x, iScr.y, iw * scale, ih * scale);
+      }
 
       // Optional green extra box
       if (currentPreset.extra) {
@@ -284,6 +293,27 @@
         const eScr = toScreen(sx + (outerW - ew) / 2, sy + (outerH - eh) / 2);
         ctx.strokeStyle = 'green';
         ctx.strokeRect(eScr.x, eScr.y, ew * scale, eh * scale);
+      }
+
+      // custom polygons
+      if (currentPreset.polygons) {
+        ctx.strokeStyle = 'purple';
+        ctx.lineWidth = 2;
+        currentPreset.polygons.forEach(polygon => {
+          ctx.beginPath();
+          polygon.forEach((pt, idx) => {
+            const px = sx + (pt[0]/2 * outerW / 2) + outerW / 2;
+            const py = sy + (pt[1]/2 * outerH / 2) + outerH / 2;
+            const scrPt = toScreen(px, py);
+            if (idx === 0) {
+              ctx.moveTo(scrPt.x, scrPt.y);
+            } else {
+              ctx.lineTo(scrPt.x, scrPt.y);
+            }
+          });
+          ctx.closePath();
+          ctx.stroke();
+        });
       }
 
       // Resize handle (triangle)
