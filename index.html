@@ -37,9 +37,14 @@
     const fileInput = document.getElementById("fileInput");
     const presetSelect = document.getElementById("presetSelect");
     const saveBtn = document.getElementById("saveBtn");
+    let rotation = 0; // in radians
+    let rotationDragging = false;
+    let rotationHandleRadius = 8; // size of rotation handle
+    let rotationHandleDistance = 30; // distance from crop box edge    
 
     let image = null;
     let imageFilename = "image";
+    let imageMimeType = "image/jpeg"; // default    
     let scale = 1;
     let crop = { x: 0, y: 0, size: 10 };
     let dragging = false;
@@ -97,6 +102,7 @@
       const file = e.target.files[0];
       if (file) {
         imageFilename = file.name.replace(/\.[^/.]+$/, "");
+        imageMimeType = file.type || "image/png";        
       }
       const reader = new FileReader();
       reader.onload = function(evt) {
@@ -168,21 +174,46 @@
       const boxW = crop.size * ow;
       const boxH = crop.size * oh;
 
+      // Check rotation handle first
+      const centerX = crop.x + boxW / 2;
+      const centerY = crop.y + boxH / 2;
+      const handleX = centerX + Math.cos(rotation) * (boxW / 2 + rotationHandleDistance / scale);
+      const handleY = centerY + Math.sin(rotation) * (boxW / 2 + rotationHandleDistance / scale);
+      
+      const distToRotationHandle = Math.sqrt((x - handleX) ** 2 + (y - handleY) ** 2);
+      
+      if (distToRotationHandle <= rotationHandleRadius / scale) {
+        rotationDragging = true;
+        return;
+      }      
+
+      // Transform mouse coordinates to account for rotation when checking resize handle
+      const cos = Math.cos(-rotation); // negative because we're inverse transforming
+      const sin = Math.sin(-rotation);
+      const relX = x - centerX;
+      const relY = y - centerY;
+      const unrotatedX = centerX + (relX * cos - relY * sin);
+      const unrotatedY = centerY + (relX * sin + relY * cos);      
+
+
       const resizeX = crop.x + boxW;
       const resizeY = crop.y + boxH;
       if (
-        x >= resizeX - resizeHandleSize / scale &&
-        x <= resizeX &&
-        y >= resizeY - resizeHandleSize / scale &&
-        y <= resizeY
+        unrotatedX >= resizeX - resizeHandleSize / scale &&
+        unrotatedX <= resizeX &&
+        unrotatedY >= resizeY - resizeHandleSize / scale &&
+        unrotatedY <= resizeY
       ) {
         resizing = true;
-      } else if (
-        x >= crop.x && x <= crop.x + boxW &&
-        y >= crop.y && y <= crop.y + boxH
+        return
+      }
+      
+      if (
+        unrotatedX >= crop.x && unrotatedX <= crop.x + boxW &&
+        unrotatedY >= crop.y && unrotatedY <= crop.y + boxH
       ) {
         dragging = true;
-        dragOffset = { x: x - crop.x, y: y - crop.y };
+        dragOffset = { x: unrotatedX - crop.x, y: unrotatedY - crop.y };
       }
     });
 
@@ -193,12 +224,74 @@
       const boxH = crop.size * oh;
       const resizeX = crop.x + boxW;
       const resizeY = crop.y + boxH;
+      const centerX = crop.x + boxW / 2;
+      const centerY = crop.y + boxH / 2;      
+
+      if (rotationDragging) {
+        // Calculate angle from center to mouse
+        const angle = Math.atan2(y - centerY, x - centerX);
+        rotation = angle;
+        canvas.style.cursor = "grabbing";
+        draw();
+        return;
+      }
+      
+      if (dragging) {
+        // Transform mouse coordinates for dragging
+        const cos = Math.cos(-rotation);
+        const sin = Math.sin(-rotation);
+        const relX = x - centerX;
+        const relY = y - centerY;
+        const unrotatedX = centerX + (relX * cos - relY * sin);
+        const unrotatedY = centerY + (relX * sin + relY * cos);
+        
+        crop.x = unrotatedX - dragOffset.x;
+        crop.y = unrotatedY - dragOffset.y;
+        draw();
+        return;
+      }
+
+      if (resizing) {
+        // Transform mouse coordinates for resizing
+        const cos = Math.cos(-rotation);
+        const sin = Math.sin(-rotation);
+        const relX = x - centerX;
+        const relY = y - centerY;
+        const unrotatedX = centerX + (relX * cos - relY * sin);
+        const unrotatedY = centerY + (relX * sin + relY * cos);
+        
+        const dx = unrotatedX - crop.x;
+        const dy = unrotatedY - crop.y;
+        const newSize = Math.max(dx / ow, dy / oh);
+        crop.size = newSize;
+        draw();
+        return;
+      }
+      
+      // Transform coordinates for hover detection
+      const cos = Math.cos(-rotation);
+      const sin = Math.sin(-rotation);
+      const relX = x - centerX;
+      const relY = y - centerY;
+      const unrotatedX = centerX + (relX * cos - relY * sin);
+      const unrotatedY = centerY + (relX * sin + relY * cos);
+      
+
+      // Check if hovering over rotation handle
+      const handleX = centerX + Math.cos(rotation) * (boxW / 2 + rotationHandleDistance / scale);
+      const handleY = centerY + Math.sin(rotation) * (boxW / 2 + rotationHandleDistance / scale);
+      const distToRotationHandle = Math.sqrt((x - handleX) ** 2 + (y - handleY) ** 2);
+      
+      if (distToRotationHandle <= rotationHandleRadius / scale) {
+        canvas.style.cursor = "grab";
+        return;
+      }
 
       if (
-        x >= resizeX - resizeHandleSize / scale &&
-        x <= resizeX &&
-        y >= resizeY - resizeHandleSize / scale &&
-        y <= resizeY
+        unrotatedX >= resizeX - resizeHandleSize / scale &&
+        unrotatedX <= resizeX &&
+        unrotatedY >= resizeY - resizeHandleSize / scale &&
+        unrotatedY <= resizeY
       ) {
         canvas.style.cursor = "nwse-resize";
       } else {
@@ -206,12 +299,12 @@
       }
 
       if (dragging) {
-        crop.x = x - dragOffset.x;
-        crop.y = y - dragOffset.y;
+        crop.x = unrotatedX - dragOffset.x;
+        crop.y = unrotatedY - dragOffset.y;
         draw();
       } else if (resizing) {
-        const dx = x - crop.x;
-        const dy = y - crop.y;
+        const dx = unrotatedX - crop.x;
+        const dy = unrotatedY - crop.y;
         const newSize = Math.max(dx / ow, dy / oh);
         crop.size = newSize;
         draw();
@@ -221,6 +314,7 @@
     canvas.addEventListener("mouseup", () => {
       dragging = false;
       resizing = false;
+      rotationDragging = false;
     });
 
     saveBtn.addEventListener("click", () => {
@@ -234,7 +328,16 @@
       const tctx = temp.getContext("2d");
       tctx.drawImage(image, crop.x, crop.y, w, h, 0, 0, w, h);
       const link = document.createElement("a");
-      link.download = `${imageFilename}-cropped.png`;
+      
+      let mime = (imageMimeType === "image/jpeg" || imageMimeType === "image/png")
+             ? imageMimeType
+             : "image/png"; // only allow safe types
+      let ext = mime === "image/jpeg" ? "jpg" : "png";
+      link.href = temp.toDataURL(mime, 0.92);
+      link.download = `${imageFilename}-cropped.${ext}`;      
+      // const ext = file.type === "image/jpeg" ? "jpg" : "png";
+      // link.href = temp.toDataURL("image/jpeg", 0.92);
+      // link.download = `${imageFilename}-cropped.jpg`;
       link.href = temp.toDataURL();
       link.click();
     });
@@ -252,8 +355,19 @@
       const sx = crop.x, sy = crop.y;
       const outerW = s * ow;
       const outerH = s * oh;
-      const scr = toScreen(sx, sy);
+      const centerX = sx + outerW / 2;
+      const centerY = sy + outerH / 2;
+      const scrCenter = toScreen(centerX, centerY);
 
+      // Apply rotation transform around center
+      ctx.save();
+      ctx.translate(scrCenter.x, scrCenter.y);
+      ctx.rotate(rotation);
+      ctx.translate(-scrCenter.x, -scrCenter.y);
+
+      // Draw all overlay elements (boxes, polygons, etc.)
+      const scr = toScreen(sx, sy);
+      
       // DPI calculation based on actual pixel dimensions
       const dpiX = outerW / ow;
       const dpiY = outerH / oh;
@@ -324,6 +438,31 @@
       ctx.lineTo(scr.x + outerW * scale, scr.y + outerH * scale - resizeHandleSize);
       ctx.closePath();
       ctx.fill();
+
+      ctx.restore(); // Restore transform
+
+      // Draw rotation handle (outside of rotation transform)
+      const handleX = centerX + Math.cos(rotation) * (outerW / 2 + rotationHandleDistance / scale);
+      const handleY = centerY + Math.sin(rotation) * (outerW / 2 + rotationHandleDistance / scale);
+      const scrHandle = toScreen(handleX, handleY);
+      
+      ctx.fillStyle = 'orange';
+      ctx.strokeStyle = 'darkorange';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(scrHandle.x, scrHandle.y, rotationHandleRadius, 0, 2 * Math.PI);
+      ctx.fill();
+      ctx.stroke();
+      
+      // Optional: draw line from center to handle
+      ctx.strokeStyle = 'orange';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([5, 5]);
+      ctx.beginPath();
+      ctx.moveTo(scrCenter.x, scrCenter.y);
+      ctx.lineTo(scrHandle.x, scrHandle.y);
+      ctx.stroke();
+      ctx.setLineDash([]);      
     }
 
     currentPreset = presets[presetSelect.value];
