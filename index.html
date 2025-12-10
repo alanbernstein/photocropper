@@ -90,10 +90,17 @@
         polygons: [
           [[ 0.6403, -0.0000], [ 0.7575, -0.2030], [ 0.7575, -0.4373], [ 0.6403, -0.6403], [ 0.4373, -0.7575], [ 0.2030, -0.7575], [ 0.0000, -0.6403], [ 0.0000, -0.6403], [-0.2030, -0.7575], [-0.4373, -0.7575], [-0.6403, -0.6403], [-0.7575, -0.4373], [-0.7575, -0.2030], [-0.6403, -0.0000], [-0.2784,  0.3619], [ 0.2784,  0.3619], [ 0.6403, -0.0000]]
         ]
+      },
+      heart_locket2: {
+        label: "Heart Locket 2x2",
+        outer: [2.0, 2.0], // half printed size (inches) (for printing a 2x2 collage)
+        polygons: [
+          [[ 0.6403, -0.0000], [ 0.7575, -0.2030], [ 0.7575, -0.4373], [ 0.6403, -0.6403], [ 0.4373, -0.7575], [ 0.2030, -0.7575], [ 0.0000, -0.6403], [ 0.0000, -0.6403], [-0.2030, -0.7575], [-0.4373, -0.7575], [-0.6403, -0.6403], [-0.7575, -0.4373], [-0.7575, -0.2030], [-0.6403, -0.0000], [-0.2784,  0.3619], [ 0.2784,  0.3619], [ 0.6403, -0.0000]]
+        ]
       }
     };
 
-    for (const key in presets) {
+   for (const key in presets) {
       const opt = document.createElement("option");
       opt.value = key;
       opt.textContent = presets[key].label;
@@ -381,11 +388,7 @@
              : "image/png"; // only allow safe types
       let ext = mime === "image/jpeg" ? "jpg" : "png";
       link.href = temp.toDataURL(mime, 0.92);
-      link.download = `${imageFilename}-cropped.${ext}`;      
-      // const ext = file.type === "image/jpeg" ? "jpg" : "png";
-      // link.href = temp.toDataURL("image/jpeg", 0.92);
-      // link.download = `${imageFilename}-cropped.jpg`;
-      link.href = temp.toDataURL();
+      link.download = `${imageFilename}-cropped.${ext}`;
       link.click();
     });
 
