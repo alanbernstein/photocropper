@@ -208,7 +208,14 @@
       document.body.classList.remove('dragover');
 
       const file = e.dataTransfer.files[0];
-      if (file) loadImageFile(file);
+      if (file) {
+        // Update the file input to show the dropped file
+        const dataTransfer = new DataTransfer();
+        dataTransfer.items.add(file);
+        fileInput.files = dataTransfer.files;
+
+        loadImageFile(file);
+      }
     });
 
     window.addEventListener("resize", () => {
