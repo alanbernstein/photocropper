@@ -18,8 +18,28 @@
       top: 10px;
       left: 10px;
       z-index: 10;
-      background: rgba(255, 255, 255, 0.8);
-      padding: 5px;
+      background: rgba(255, 255, 255, 0.9);
+      padding: 8px;
+      border-radius: 4px;
+      font-family: sans-serif;
+    }
+    #hints {
+      background: rgba(255, 255, 255, 0.9);
+      padding: 8px;
+      margin-top: 8px;
+      font-size: 11px;
+      line-height: 1.6;
+      border-radius: 4px;
+      border-top: 1px solid rgba(0, 0, 0, 0.1);
+    }
+    #hints.hidden {
+      display: none;
+    }
+    #toggleHints {
+      margin-left: 5px;
+      font-size: 11px;
+      cursor: pointer;
+      padding: 2px 6px;
     }
     body.dragover::after {
       content: 'Drop image here';
@@ -42,9 +62,17 @@
 </head>
 <body>
   <div id="controls">
-    <input type="file" id="fileInput" />
-    <select id="presetSelect"></select>
-    <button id="saveBtn">Crop & Save</button>
+    <div>
+      <input type="file" id="fileInput" />
+      <select id="presetSelect"></select>
+      <button id="saveBtn">Crop & Save</button>
+      <button id="toggleHints">?</button>
+    </div>
+    <div id="hints">
+      Move: left-click<br>
+      Rotate: right-click, orange handle<br>
+      Resize: middle-click, red handle
+    </div>
   </div>
   <canvas id="canvas"></canvas>
 
@@ -54,18 +82,25 @@
     const fileInput = document.getElementById("fileInput");
     const presetSelect = document.getElementById("presetSelect");
     const saveBtn = document.getElementById("saveBtn");
+    const toggleHints = document.getElementById("toggleHints");
+    const hints = document.getElementById("hints");
     let rotation = 0; // in radians
     let rotationDragging = false;
     let rotationHandleRadius = 8; // size of rotation handle
-    let rotationHandleDistance = 30; // distance from crop box edge    
+    let rotationHandleDistance = 30; // distance from crop box edge
+    let initialRotation = 0;
+    let initialMouseAngle = 0;
 
     let image = null;
     let imageFilename = "image";
-    let imageMimeType = "image/jpeg"; // default    
+    let imageMimeType = "image/jpeg"; // default
     let scale = 1;
     let crop = { x: 0, y: 0, size: 10 };
     let dragging = false;
     let resizing = false;
+    let centerResizing = false;
+    let initialResizeDistance = 0;
+    let initialCropSize = 0;
     let dragOffset = { x: 0, y: 0 };
     let currentPreset = null;
 
@@ -120,6 +155,10 @@
         crop.size *= factor;
       }
       draw();
+    });
+
+    toggleHints.addEventListener("click", () => {
+      hints.classList.toggle("hidden");
     });
 
     function loadImageFile(file) {
@@ -222,34 +261,67 @@
       return { x: (x - dx) / scale, y: (y - dy) / scale };
     }
 
+    // Prevent context menu on canvas
+    canvas.addEventListener("contextmenu", e => {
+      e.preventDefault();
+    });
+
     canvas.addEventListener("mousedown", e => {
       const { x, y } = toImage(e.offsetX, e.offsetY);
       const [ow, oh] = currentPreset.outer;
       const boxW = crop.size * ow;
       const boxH = crop.size * oh;
 
-      // Check rotation handle first
       const centerX = crop.x + boxW / 2;
       const centerY = crop.y + boxH / 2;
-      const handleX = centerX + Math.cos(rotation) * (boxW / 2 + rotationHandleDistance / scale);
-      const handleY = centerY + Math.sin(rotation) * (boxW / 2 + rotationHandleDistance / scale);
-      
-      const distToRotationHandle = Math.sqrt((x - handleX) ** 2 + (y - handleY) ** 2);
-      
-      if (distToRotationHandle <= rotationHandleRadius / scale) {
-        rotationDragging = true;
-        return;
-      }      
 
-      // Transform mouse coordinates to account for rotation when checking resize handle
-      const cos = Math.cos(-rotation); // negative because we're inverse transforming
+      // Transform mouse coordinates to account for rotation
+      const cos = Math.cos(-rotation);
       const sin = Math.sin(-rotation);
       const relX = x - centerX;
       const relY = y - centerY;
       const unrotatedX = centerX + (relX * cos - relY * sin);
-      const unrotatedY = centerY + (relX * sin + relY * cos);      
+      const unrotatedY = centerY + (relX * sin + relY * cos);
 
+      // Check if inside the crop box
+      const insideBox = (
+        unrotatedX >= crop.x && unrotatedX <= crop.x + boxW &&
+        unrotatedY >= crop.y && unrotatedY <= crop.y + boxH
+      );
 
+      // Right-click: rotate
+      if (e.button === 2 && insideBox) {
+        rotationDragging = true;
+        initialRotation = rotation;
+        initialMouseAngle = Math.atan2(y - centerY, x - centerX);
+        return;
+      }
+
+      // Middle-click: center-resize
+      if (e.button === 1 && insideBox) {
+        centerResizing = true;
+        const distFromCenter = Math.sqrt((x - centerX) ** 2 + (y - centerY) ** 2);
+        initialResizeDistance = distFromCenter;
+        initialCropSize = crop.size;
+        return;
+      }
+
+      // Left-click only from here on
+      if (e.button !== 0) return;
+
+      // Check rotation handle
+      const handleX = centerX + Math.cos(rotation) * (boxW / 2 + rotationHandleDistance / scale);
+      const handleY = centerY + Math.sin(rotation) * (boxW / 2 + rotationHandleDistance / scale);
+      const distToRotationHandle = Math.sqrt((x - handleX) ** 2 + (y - handleY) ** 2);
+
+      if (distToRotationHandle <= rotationHandleRadius / scale) {
+        rotationDragging = true;
+        initialRotation = rotation;
+        initialMouseAngle = Math.atan2(y - centerY, x - centerX);
+        return;
+      }
+
+      // Check resize handle
       const resizeX = crop.x + boxW;
       const resizeY = crop.y + boxH;
       if (
@@ -259,13 +331,11 @@
         unrotatedY <= resizeY
       ) {
         resizing = true;
-        return
+        return;
       }
-      
-      if (
-        unrotatedX >= crop.x && unrotatedX <= crop.x + boxW &&
-        unrotatedY >= crop.y && unrotatedY <= crop.y + boxH
-      ) {
+
+      // Dragging
+      if (insideBox) {
         dragging = true;
         dragOffset = { x: unrotatedX - crop.x, y: unrotatedY - crop.y };
       }
@@ -282,14 +352,35 @@
       const centerY = crop.y + boxH / 2;      
 
       if (rotationDragging) {
-        // Calculate angle from center to mouse
-        const angle = Math.atan2(y - centerY, x - centerX);
-        rotation = angle;
+        // Calculate relative rotation based on mouse movement
+        const currentMouseAngle = Math.atan2(y - centerY, x - centerX);
+        const angleDelta = currentMouseAngle - initialMouseAngle;
+        rotation = initialRotation + angleDelta;
         canvas.style.cursor = "grabbing";
         draw();
         return;
       }
-      
+
+      if (centerResizing) {
+        // Calculate new size based on distance from center
+        const distFromCenter = Math.sqrt((x - centerX) ** 2 + (y - centerY) ** 2);
+        const scaleFactor = distFromCenter / initialResizeDistance;
+        const newSize = initialCropSize * scaleFactor;
+
+        // Update crop size while keeping center fixed
+        const oldCenterX = crop.x + boxW / 2;
+        const oldCenterY = crop.y + boxH / 2;
+        crop.size = newSize;
+        const newBoxW = newSize * ow;
+        const newBoxH = newSize * oh;
+        crop.x = oldCenterX - newBoxW / 2;
+        crop.y = oldCenterY - newBoxH / 2;
+
+        canvas.style.cursor = "nwse-resize";
+        draw();
+        return;
+      }
+
       if (dragging) {
         // Transform mouse coordinates for dragging
         const cos = Math.cos(-rotation);
@@ -369,6 +460,7 @@
       dragging = false;
       resizing = false;
       rotationDragging = false;
+      centerResizing = false;
     });
 
     saveBtn.addEventListener("click", () => {
