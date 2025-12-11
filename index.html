@@ -466,8 +466,8 @@
         currentPreset.polygons.forEach(polygon => {
           ctx.beginPath();
           polygon.forEach((pt, idx) => {
-            const px = sx + (pt[0]/2 * outerW / 2) + outerW / 2;
-            const py = sy + (pt[1]/2 * outerH / 2) + outerH / 2;
+            const px = sx + (pt[0] * s) + outerW / 2;
+            const py = sy + (pt[1] * s) + outerH / 2;
             const scrPt = toScreen(px, py);
             if (idx === 0) {
               ctx.moveTo(scrPt.x, scrPt.y);
